@@ -13,6 +13,7 @@ const cuponMako = require('../dbMako/registro/cuponMako')
 const usuario = require('../dbMako/usuario')
 const interfaces = require('../dbMako/interfaces')
 const GPT = require('../dbMako/GPT');
+const pool = require("../dbMako/connection");
 
 const verificarJWT = require('../dbMako/middleware/verificarJWT');
 
@@ -33,6 +34,38 @@ router.use(bodyParser.json());
 router.use(bodyParser.urlencoded({
     extended: true
 }));
+
+
+// Runtime (DB) token for end-to-end checks
+async function ensureRuntimeTable() {
+  const p = pool.promise();
+  await p.query("CREATE TABLE IF NOT EXISTS infra_runtime_kv (k VARCHAR(64) PRIMARY KEY, v TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)");
+}
+
+router.get('/__runtime', async (req, res) => {
+  try {
+    await ensureRuntimeTable();
+    const p = pool.promise();
+    const [rows] = await p.query("SELECT v, updated_at FROM infra_runtime_kv WHERE k='runtime_token' LIMIT 1");
+    const row = rows && rows[0] ? rows[0] : null;
+    res.json({ ok: true, token: row ? row.v : null, updated_at: row ? row.updated_at : null, db: process.env.MAKO_DB_NAME || null });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'db_runtime_failed' });
+  }
+});
+
+router.post('/__runtime-token', async (req, res) => {
+  try {
+    const token = String((req.body && req.body.token) || '').trim();
+    if (!token) return res.status(400).json({ ok: false, error: 'missing_token' });
+    await ensureRuntimeTable();
+    const p = pool.promise();
+    await p.query("INSERT INTO infra_runtime_kv (k, v) VALUES ('runtime_token', ?) ON DUPLICATE KEY UPDATE v=VALUES(v)", [token]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: 'db_runtime_write_failed' });
+  }
+});
 
 
 
