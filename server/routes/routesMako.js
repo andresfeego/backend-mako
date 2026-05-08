@@ -17,11 +17,14 @@ const GPT = require('../dbMako/GPT');
 const verificarJWT = require('../dbMako/middleware/verificarJWT');
 
 const path = require('path');
+const fs = require('fs');
 const multer = require('multer');
 
 const router = express.Router();
 var bodyParser = require('body-parser');
 const isProd = process.env.NODE_ENV === 'production';
+const storageRoot = process.env.MAKO_STORAGE_ROOT || path.join(__dirname, '..', '..', '_local_storage');
+const logosDir = path.join(storageRoot, 'images', 'logos');
 
 // Multer en memoria: máx 2 imágenes
         const upload = multer({
@@ -1032,9 +1035,14 @@ router.post('/empresas/registro/actualizaUrlLogo', async (req, res, next) => {
 
 router.post('/uploadLogo', async function (req, res) {
     generaCodigoEmpresa().then((codigo) => {
+        try {
+            fs.mkdirSync(logosDir, { recursive: true });
+        } catch (e) {
+            console.log(e);
+        }
 
         const storage = multer.diskStorage({
-            destination: '../public_html/scrAppServer/images/logos/',
+            destination: logosDir,
             filename: function (req, file, cb) {
                 cb(null, codigo + path.extname(file.originalname));
 

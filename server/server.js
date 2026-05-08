@@ -11,10 +11,12 @@ const morgan = require('morgan');
 
 const env = process.env.NODE_ENV || 'development';
 const isProd = env === 'production';
+const storageRoot = process.env.MAKO_STORAGE_ROOT || path.join(__dirname, '..', '_local_storage');
 
 // Logs
 const logDir = process.env.MAKO_LOG_DIR || (isProd ? '/home/feegosys/logs' : path.join(__dirname, 'logs'));
 try { fs.mkdirSync(logDir, { recursive: true }); } catch (e) {}
+try { fs.mkdirSync(storageRoot, { recursive: true }); } catch (e) {}
 
 const accessLogStream = fs.createWriteStream(path.join(logDir, 'access.log'), { flags: 'a' });
 
@@ -38,6 +40,7 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 app.use(morgan('combined', { stream: accessLogStream }));
+app.use('/files', express.static(storageRoot));
 
 // Routes
 const apiRouterMako = require('./routes/routesMako.js');
