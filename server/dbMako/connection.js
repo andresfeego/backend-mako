@@ -14,4 +14,9 @@ const pool = mysql.createPool({
   multipleStatements: true,
 });
 
+pool.on('connection', (conn) => {
+  // Keep session collation aligned with DB/table collation to avoid ER_CANT_AGGREGATE_2COLLATIONS.
+  conn.query("SET NAMES utf8mb4 COLLATE utf8mb4_uca1400_ai_ci");
+});
+
 module.exports = pool;
