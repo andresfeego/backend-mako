@@ -522,15 +522,67 @@ router.get('/usuario/ui-permisos', async (req, res) => {
 //__________________________ BITACORA  ______________________________________
 
 router.post('/bitacora/nuevoEvento', async (req, res, next) => {
+    return res.status(410).json({
+        ok: false,
+        error: 'Endpoint deprecado. Usa POST /api/responseMako/bitacora/trackEvent',
+    });
+});
+
+function validateTrackEventPayload(payload) {
+    const requiredStringFields = [
+        'event_name', 'event_category', 'event_action', 'occurred_at',
+        'source_channel', 'platform', 'session_id', 'request_id',
+        'country_code', 'ip_mode', 'schema_version'
+    ];
+    const errors = [];
+    const requiredKeysPresence = [
+        'event_label', 'event_value', 'app_version', 'web_build', 'user_id',
+        'page_url', 'referrer_url', 'screen_name', 'device_model', 'os_name',
+        'os_version', 'browser_name', 'browser_version', 'locale', 'timezone',
+        'city', 'ip_value', 'user_agent_raw', 'user_agent_hash', 'properties'
+    ];
+    requiredKeysPresence.forEach((field) => {
+        if (!(field in payload)) {
+            errors.push(`Campo requerido faltante en payload: ${field}`);
+        }
+    });
+    requiredStringFields.forEach((field) => {
+        if (typeof payload[field] !== 'string' || payload[field].trim() === '') {
+            errors.push(`Campo requerido inválido: ${field}`);
+        }
+    });
+    if (typeof payload.is_authenticated !== 'boolean') {
+        errors.push('Campo requerido inválido: is_authenticated (boolean)');
+    }
+    if (payload.user_id !== null && payload.user_id !== undefined && typeof payload.user_id !== 'number') {
+        errors.push('Campo inválido: user_id debe ser number|null');
+    }
+    if (payload.event_value !== null && payload.event_value !== undefined && typeof payload.event_value !== 'number') {
+        errors.push('Campo inválido: event_value debe ser number|null');
+    }
+    if (payload.properties !== null && payload.properties !== undefined && typeof payload.properties !== 'object') {
+        errors.push('Campo inválido: properties debe ser object|null');
+    }
+    const occurredAt = new Date(payload.occurred_at);
+    if (Number.isNaN(occurredAt.getTime())) {
+        errors.push('Campo inválido: occurred_at debe ser fecha ISO válida');
+    }
+    return errors;
+}
+
+router.post('/bitacora/trackEvent', async (req, res) => {
+    const errors = validateTrackEventPayload(req.body || {});
+    if (errors.length > 0) {
+        return res.status(400).json({ ok: false, errors });
+    }
 
     try {
-        let results = await bitacora.nuevoEventoBitacora(req.body.tipoAccion, req.body.flujo, req.body.etiqueta, req.body.hashSession, req.body.authenticated, req.body.usuario, req.body.dispositivo, req.body.navegador, req.body.plataforma, req.body.pais);
-        res.json(results);
+        await bitacora.trackEvent(req.body);
+        res.status(202).json({ ok: true });
     } catch (e) {
         console.log(e);
         res.sendStatus(500);
     }
-
 });
 
 router.get('/bitacora/busquedasPalabra', async (req, res, next) => {
@@ -556,6 +608,63 @@ router.get('/bitacora/flujosNavegacion', async (req, res, next) => {
         res.sendStatus(500);
     }
 
+});
+
+router.get('/bitacora/eventos', async (req, res) => {
+    const rawLimit = req.query.limit ?? '50';
+    const rawOffset = req.query.offset ?? '0';
+    const limit = Number(rawLimit);
+    const offset = Number(rawOffset);
+
+    if (!Number.isInteger(limit) || limit <= 0 || limit > 200) {
+        return res.status(400).json({ ok: false, error: 'limit inválido (1-200)' });
+    }
+    if (!Number.isInteger(offset) || offset < 0) {
+        return res.status(400).json({ ok: false, error: 'offset inválido (>=0)' });
+    }
+
+    try {
+        const [items, total] = await Promise.all([
+            bitacora.eventosPaginados(limit, offset),
+            bitacora.totalEventos(),
+        ]);
+        const normalized = items.map((row) => ({
+            ...row,
+            properties: typeof row.properties === 'string' ? JSON.parse(row.properties) : (row.properties || {}),
+        }));
+        const nextOffset = offset + normalized.length;
+        const hasMore = nextOffset < total;
+
+        res.json({
+            items: normalized,
+            total,
+            nextOffset: hasMore ? nextOffset : null,
+            hasMore,
+        });
+    } catch (e) {
+        console.log(e);
+        res.sendStatus(500);
+    }
+});
+
+router.get('/bitacora/eventos/session/:sessionId', async (req, res) => {
+    const sessionId = String(req.params.sessionId || '').trim();
+    const valid = /^[A-Za-z0-9._:-]{6,120}$/.test(sessionId);
+    if (!valid) {
+        return res.status(400).json({ ok: false, error: 'sessionId inválido' });
+    }
+
+    try {
+        const items = await bitacora.eventosPorSession(sessionId);
+        const normalized = items.map((row) => ({
+            ...row,
+            properties: typeof row.properties === 'string' ? JSON.parse(row.properties) : (row.properties || {}),
+        }));
+        res.json({ items: normalized, total: normalized.length });
+    } catch (e) {
+        console.log(e);
+        res.sendStatus(500);
+    }
 });
 
 //__________________________ AUXILIARES ______________________________________
@@ -822,6 +931,23 @@ router.get('/empresas/:id', async (req, res, next) => {
         res.sendStatus(500);
     }
 
+});
+
+router.post('/empresas/:id/incrementarVisita', async (req, res) => {
+    const codigo = String(req.params.id || '').trim();
+    if (!/^[A-Za-z0-9]{4,20}$/.test(codigo)) {
+        return res.status(400).json({ ok: false, error: 'Código de empresa inválido' });
+    }
+    try {
+        const result = await empresas.incrementarVisto(codigo);
+        if (!result || result.affectedRows === 0) {
+            return res.status(404).json({ ok: false, error: 'Empresa no encontrada' });
+        }
+        return res.status(200).json({ ok: true });
+    } catch (e) {
+        console.log(e);
+        return res.sendStatus(500);
+    }
 });
 
 router.get('/empresas/imagenesSlide/:id', async (req, res, next) => {

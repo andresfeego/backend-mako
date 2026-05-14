@@ -413,6 +413,21 @@ csmDB.jornadas = (id) => {
 
 };
 
+csmDB.incrementarVisto = (codigoEmpresa) => {
+    return new Promise((resolve, reject) => {
+        pool.query(
+            `UPDATE empresa
+             SET visto = COALESCE(visto, 0) + 1
+             WHERE codigo = ?`,
+            [codigoEmpresa],
+            (err, results) => {
+                if (err) return reject(err);
+                return resolve(results);
+            }
+        );
+    });
+};
+
 
 
 module.exports = csmDB;
